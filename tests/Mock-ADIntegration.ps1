@@ -82,7 +82,19 @@ try {
     if ($ext.adcs_template_summary.enrollee_supplies_subject_templates -ne 1) { throw 'AD CS template finding missing' }
     if (-not ($ext.findings | Where-Object { $_.rule_id -eq 'AD017' })) { throw 'Missing AD017' }
     if (-not ($ext.findings | Where-Object { $_.rule_id -eq 'AD018' })) { throw 'Missing AD018' }
-    Write-Host 'PASS: PowerShell 5.1 mock AD query, LAPS metadata, AD CS template indicator'
+    # Mock only the remote policy response; no remote machine is contacted.
+    function Invoke-Command {
+        [CmdletBinding()]
+        param([string]$ComputerName,[scriptblock]$ScriptBlock,[System.Management.Automation.PSCredential]$Credential)
+        [pscustomobject]@{ signing = 1; channel_binding = 0 }
+    }
+    $registryFile = Join-Path $moduleRoot 'dc-posture.json'
+    & $script -Server 'dc01.training.invalid' -CheckDcRegistry -OutputPath $registryFile
+    $registryReport = Get-Content -Path $registryFile -Raw | ConvertFrom-Json
+    if (-not ($registryReport.findings | Where-Object { $_.rule_id -eq 'AD014' })) { throw 'LDAP signing indicator missing' }
+    if (-not ($registryReport.findings | Where-Object { $_.rule_id -eq 'AD015' })) { throw 'LDAP channel binding indicator missing' }
+    Remove-Item Function:\Invoke-Command -ErrorAction SilentlyContinue
+    Write-Host 'PASS: PowerShell 5.1 mock AD query, LAPS, AD CS, and LDAP DC policy indicators'
 } finally {
     Remove-Module ActiveDirectory -ErrorAction SilentlyContinue
     $env:PSModulePath = $oldPath
