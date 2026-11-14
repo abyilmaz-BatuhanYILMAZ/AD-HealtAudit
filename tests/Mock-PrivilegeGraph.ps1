@@ -117,7 +117,18 @@ try {
     if (@($analysis.high_impact_exposures | Where-Object { $_.kind -eq 'dcsync_rights_candidate' }).Count -ne 1) {
         throw 'DCSync is an independent high-impact exposure, not an automatic DA membership'
     }
-    Write-Host 'PASS: mocked AD export and Python privilege graph: 3-edge candidate, separate DCSync and GPO indicators'
+    # Verify that the one-command user entrypoint produces local evidence and HTML.
+    $outputDirectory = Join-Path $testFolder 'reports'
+    & (Join-Path $root 'scripts/Invoke-ADPrivilegePathAudit.ps1') -Server 'dc01.training.invalid' -StartSamAccountName 'lab-alice' -OutputDirectory $outputDirectory -Format Html -IncludeIdentityNames
+    $graphOutputs = @(Get-ChildItem -LiteralPath $outputDirectory -Filter 'privilege-graph-*.json')
+    $htmlOutputs = @(Get-ChildItem -LiteralPath $outputDirectory -Filter 'privilege-paths-*.html')
+    if ($graphOutputs.Count -ne 1 -or $htmlOutputs.Count -ne 1) {
+        throw 'The one-command AD audit runner did not produce graph evidence and HTML.'
+    }
+    if ((Get-Content -LiteralPath $htmlOutputs[0].FullName -Raw) -notlike '*potential_acl_path*') {
+        throw 'The HTML report failed to display a potential ACL path.'
+    }
+    Write-Host 'PASS: mocked AD export, one-command HTML and Python path assessment'
 } finally {
     Remove-Module ActiveDirectory -ErrorAction SilentlyContinue
     $env:PSModulePath = $oldPath
