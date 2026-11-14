@@ -71,6 +71,9 @@ try {
     $htmlFile = Join-Path $moduleRoot 'audit.html'
     & $script -Server 'dc01.training.invalid' -OutputPath $htmlFile -Format Html -IncludeAccountNames
     $html = Get-Content -Path $htmlFile -Raw
+    if ($html -notlike '*Evidence attribute*' -or $html -notlike '*Recommended review*' -or $html -notlike '*DoesNotRequirePreAuth=True*') {
+        throw 'HTML report must contain escaped evidence and remediation details'
+    }
     if ($html -notlike '*lab-account-1*' -or $html -notlike '*AD002*') {
         throw 'Expected opt-in account-level HTML evidence was absent'
     }
