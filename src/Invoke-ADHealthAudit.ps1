@@ -19,7 +19,10 @@ param(
     [string]$SearchBase,
     [ValidateSet('Json', 'Html')][string]$Format = 'Json',
     [string]$OutputPath,
-    [switch]$IncludeAccountNames
+    [switch]$IncludeAccountNames,
+    [switch]$CheckDcRegistry,
+    [switch]$CheckLapsMetadata,
+    [switch]$CheckAdcsTemplates
 )
 
 Set-StrictMode -Version Latest
@@ -67,7 +70,11 @@ function Add-Indicator {
     }
     if ($IncludeAccountNames) {
         # Account metadata is sensitive: names are emitted only with opt-in.
-        $item['affected_objects'] = @($Objects | ForEach-Object { [string]$_.SamAccountName })
+        $item['affected_objects'] = @($Objects | ForEach-Object {
+            if ($_.PSObject.Properties['SamAccountName'] -and $_.SamAccountName) { [string]$_.SamAccountName }
+            elseif ($_.PSObject.Properties['Name'] -and $_.Name) { [string]$_.Name }
+            else { '[unknown-identifier]' }
+        })
     }
     $findings.Add($item)
 }
@@ -145,6 +152,100 @@ try {
     $warnings.Add('Computer inventory unavailable; computer findings are incomplete.')
 }
 
+
+# Optional, explicit remote DC read via WinRM. Never mutate AD/DC state.
+$dcSecurity = $null
+if ($CheckDcRegistry) {
+    if ([string]::IsNullOrWhiteSpace($Server)) {
+        $warnings.Add('DC registry inspection needs -Server; effective LDAP policy remains unknown.')
+    } else {
+        try {
+            $remote = @{ ComputerName = $Server; ErrorAction = 'Stop' }
+            if ($null -ne $Credential) { $remote['Credential'] = $Credential }
+            $dcSecurity = Invoke-Command @remote -ScriptBlock {
+                $key = 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters'
+                $properties = Get-ItemProperty -LiteralPath $key -ErrorAction Stop
+                [pscustomobject]@{
+                    signing = if ($null -ne $properties.PSObject.Properties['LDAPServerIntegrity']) { $properties.LDAPServerIntegrity } else { $null }
+                    channel_binding = if ($null -ne $properties.PSObject.Properties['LdapEnforceChannelBinding']) { $properties.LdapEnforceChannelBinding } else { $null }
+                }
+            }
+            if (@($dcSecurity).Count -ne 1) { throw 'Unexpected DC registry response count.' }
+            if ($null -eq $dcSecurity.signing) {
+                $warnings.Add('LDAP signing value missing; effective OS/GPO default is unknown.')
+            } elseif ([int]$dcSecurity.signing -ne 2) {
+                Add-Indicator 'AD014' 'HIGH' 'Selected DC does not require LDAP signing' 'LDAPServerIntegrity != 2' 'Review applied DC Group Policy and require signing after compatibility assessment.' @([pscustomobject]@{Name=$Server}) 'domain_controller'
+            }
+            if ($null -eq $dcSecurity.channel_binding) {
+                $warnings.Add('LDAP channel binding value missing; effective OS/GPO default is unknown.')
+            } elseif ([int]$dcSecurity.channel_binding -eq 0) {
+                Add-Indicator 'AD015' 'HIGH' 'Selected DC LDAP channel binding: Never' 'LdapEnforceChannelBinding=0' 'Review LDAP CBT client compatibility and plan enforcement.' @([pscustomobject]@{Name=$Server}) 'domain_controller'
+            } elseif ([int]$dcSecurity.channel_binding -eq 1) {
+                Add-Indicator 'AD016' 'MEDIUM' 'Selected DC LDAP channel binding: When supported' 'LdapEnforceChannelBinding=1' 'Check audit events and decide whether Always is required.' @([pscustomobject]@{Name=$Server}) 'domain_controller'
+            } elseif ([int]$dcSecurity.channel_binding -ne 2) {
+                $warnings.Add('Unknown LDAP channel binding setting; manual review required.')
+            }
+        } catch {
+            $dcSecurity = $null
+            $warnings.Add('Remote DC registry inspection failed: WinRM or permissions unavailable; setting unknown.')
+        }
+    }
+}
+
+# Read ONLY Windows LAPS / legacy LAPS expiration metadata, never passwords.
+$lapsSummary = $null
+if ($CheckLapsMetadata) {
+    try {
+        $p = @{}
+        if ($SearchBase) { $p['SearchBase'] = $SearchBase }
+        $items = @(Get-ADComputer -Filter * -ResultPageSize 500 @common @p -Properties @('Enabled', 'msLAPS-PasswordExpirationTime', 'ms-Mcs-AdmPwdExpirationTime') -ErrorAction Stop)
+        $hasMetadata = @()
+        $overdue = @()
+        $nowUtc = (Get-Date).ToUniversalTime()
+        foreach ($computer in $items) {
+            if ($computer.Enabled -ne $true) { continue }
+            $value = $computer.'msLAPS-PasswordExpirationTime'
+            if ($null -eq $value -or [string]$value -eq '0') { $value = $computer.'ms-Mcs-AdmPwdExpirationTime' }
+            if ($null -eq $value -or [string]$value -eq '0') { continue }
+            $hasMetadata += $computer
+            try {
+                if ([DateTime]::FromFileTimeUtc([long]$value) -lt $nowUtc) { $overdue += $computer }
+            } catch { $warnings.Add('One or more LAPS expiration metadata values are invalid.') }
+        }
+        $lapsSummary = [ordered]@{
+            computers_examined = $items.Count
+            enabled_with_laps_expiration_metadata = $hasMetadata.Count
+            enabled_overdue_expiration_metadata = $overdue.Count
+            missing_metadata_not_proof_of_missing_laps = $true
+        }
+        Add-Indicator 'AD017' 'MEDIUM' 'LAPS expiration metadata overdue' 'msLAPS-PasswordExpirationTime / ms-Mcs-AdmPwdExpirationTime' 'Investigate client LAPS policy and rotation; expiration metadata is not proof of credential exposure.' $overdue 'computer'
+    } catch {
+        $warnings.Add('LAPS expiration metadata inventory unavailable; schema/read rights may be missing.')
+    }
+}
+
+# Certificate template indicator only: no published-CA or enrollment ACL proof.
+$adcsSummary = $null
+if ($CheckAdcsTemplates) {
+    try {
+        $rootDse = Get-ADRootDSE @common -ErrorAction Stop
+        $base = 'CN=Certificate Templates,CN=Public Key Services,CN=Services,' + [string]$rootDse.configurationNamingContext
+        $templates = @(Get-ADObject -LDAPFilter '(objectClass=pKICertificateTemplate)' -SearchBase $base -ResultPageSize 500 @common -Properties @('msPKI-Certificate-Name-Flag','pKIExtendedKeyUsage') -ErrorAction Stop)
+        $supplied = @($templates | Where-Object {
+            $v = $_.'msPKI-Certificate-Name-Flag'
+            $null -ne $v -and (([long]$v -band 1) -ne 0)
+        })
+        $adcsSummary = [ordered]@{
+            templates_visible = $templates.Count
+            enrollee_supplies_subject_templates = $supplied.Count
+            enrollment_acls_and_ca_publication_not_assessed = $true
+        }
+        Add-Indicator 'AD018' 'MEDIUM' 'Certificate template permits enrollee-supplied subject' 'msPKI-Certificate-Name-Flag bit 0x1' 'Review enrollment ACLs, EKUs, issuance requirements and CA publication; not enough for an ESC1 finding.' $supplied 'certificate_template'
+    } catch {
+        $warnings.Add('AD CS template inventory unavailable; result is not a complete AD CS assessment.')
+    }
+}
+
 $summary = [ordered]@{
     users_total = $users.Count
     users_enabled = $enabled.Count
@@ -162,7 +263,7 @@ $summary = [ordered]@{
 $requestedDc = if ($Server) { $Server } else { 'discovered_default' }
 $baseDn = if ($SearchBase) { $SearchBase } else { [string]$domain.DistinguishedName }
 $report = [ordered]@{
-    schema_version = '2.0'
+    schema_version = '3.0'
     generated_utc = (Get-Date).ToUniversalTime().ToString('o')
     domain_dns_name = [string]$domain.DNSRoot
     domain_controller_requested = $requestedDc
@@ -173,6 +274,10 @@ $report = [ordered]@{
     complete = ($warnings.Count -eq 0)
     summary = $summary
     computer_summary = $computerCounts
+    selected_dc_registry = $dcSecurity
+    laps_metadata_summary = $lapsSummary
+    adcs_template_summary = $adcsSummary
+    selected_checks = [ordered]@{ dc_registry = [bool]$CheckDcRegistry; laps_metadata = [bool]$CheckLapsMetadata; adcs_templates = [bool]$CheckAdcsTemplates }
     default_password_policy = $policy
     findings = @($findings.ToArray())
     warnings = @($warnings.ToArray())
