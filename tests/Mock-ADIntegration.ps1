@@ -36,9 +36,17 @@ function Get-ADDefaultDomainPasswordPolicy {
 }
 function Get-ADComputer {
   param([string]$Filter,[string[]]$Properties,[int]$ResultPageSize,[string]$Server,[string]$SearchBase,[System.Management.Automation.PSCredential]$Credential)
-  [pscustomobject]@{ SamAccountName='LAB-DC$'; Enabled=$true; LastLogonDate=(Get-Date); TrustedForDelegation=$true }
+  [pscustomobject]@{ SamAccountName='LAB-DC$'; Enabled=$true; LastLogonDate=(Get-Date); TrustedForDelegation=$true; 'msLAPS-PasswordExpirationTime'=([DateTime]::UtcNow.AddDays(-2).ToFileTimeUtc()); 'ms-Mcs-AdmPwdExpirationTime'=$null }
 }
-Export-ModuleMember -Function Get-ADDomain,Get-ADUser,Get-ADGroupMember,Get-ADDefaultDomainPasswordPolicy,Get-ADComputer
+function Get-ADRootDSE {
+  param([string]$Server,[System.Management.Automation.PSCredential]$Credential)
+  [pscustomobject]@{ configurationNamingContext='CN=Configuration,DC=training,DC=invalid' }
+}
+function Get-ADObject {
+  param([string]$LDAPFilter,[string]$SearchBase,[int]$ResultPageSize,[string[]]$Properties,[string]$Server,[System.Management.Automation.PSCredential]$Credential)
+  [pscustomobject]@{Name='DemoTemplate'; 'msPKI-Certificate-Name-Flag'=1; pKIExtendedKeyUsage=@('1.3.6.1.5.5.7.3.2')}
+}
+Export-ModuleMember -Function Get-ADDomain,Get-ADUser,Get-ADGroupMember,Get-ADDefaultDomainPasswordPolicy,Get-ADComputer,Get-ADRootDSE,Get-ADObject
 '@
 $moduleSource | Set-Content -Path $moduleFile -Encoding UTF8
 $oldPath = $env:PSModulePath
@@ -50,7 +58,7 @@ try {
     $jsonFile = Join-Path $moduleRoot 'audit.json'
     & $script -Server 'dc01.training.invalid' -OutputPath $jsonFile -Format Json
     $json = Get-Content -Path $jsonFile -Raw | ConvertFrom-Json
-    if ($json.schema_version -ne '2.0' -or $json.summary.users_enabled -ne 2) { throw 'Wrong summary' }
+    if ($json.schema_version -ne '3.0' -or $json.summary.users_enabled -ne 2) { throw 'Wrong summary' }
     if ($json.findings.Count -lt 7) { throw 'Expected multiple live-indicator findings' }
     if ($json.findings | Where-Object { $_.PSObject.Properties.Name -contains 'affected_objects' }) {
         throw 'Account names were included without consent'
@@ -66,7 +74,15 @@ try {
     if ($html -notlike '*lab-account-1*' -or $html -notlike '*AD002*') {
         throw 'Expected opt-in account-level HTML evidence was absent'
     }
-    Write-Host 'PASS: PowerShell 5.1 mocked AD queries, 13 indicator categories, JSON and HTML output'
+    $extended = Join-Path $moduleRoot 'extended.json'
+    & $script -Server 'dc01.training.invalid' -CheckLapsMetadata -CheckAdcsTemplates -OutputPath $extended
+    $ext = Get-Content -Path $extended -Raw | ConvertFrom-Json
+    if ($ext.schema_version -ne '3.0') { throw 'Schema not upgraded' }
+    if ($ext.laps_metadata_summary.enabled_overdue_expiration_metadata -ne 1) { throw 'LAPS timestamp finding missing' }
+    if ($ext.adcs_template_summary.enrollee_supplies_subject_templates -ne 1) { throw 'AD CS template finding missing' }
+    if (-not ($ext.findings | Where-Object { $_.rule_id -eq 'AD017' })) { throw 'Missing AD017' }
+    if (-not ($ext.findings | Where-Object { $_.rule_id -eq 'AD018' })) { throw 'Missing AD018' }
+    Write-Host 'PASS: PowerShell 5.1 mock AD query, LAPS metadata, AD CS template indicator'
 } finally {
     Remove-Module ActiveDirectory -ErrorAction SilentlyContinue
     $env:PSModulePath = $oldPath
