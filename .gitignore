@@ -2,3 +2,11 @@ report.json
 reports/
 *.evtx
 __pycache__/
+
+# Confidential local AD inventories and privilege relationship output
+graph.json
+ad-audit*.json
+privilege-graph-*.json
+privilege-paths-*.json
+privilege-paths-*.html
+ad-paths*.html

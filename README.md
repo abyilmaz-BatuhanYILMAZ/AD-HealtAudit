@@ -49,6 +49,25 @@ All remote directory commands are **Get-AD*** queries. No Set-AD, New-AD, Remove
 **License:** MIT. Use only on AD DS environments you are authorized to audit.
 
 
+
+## Ordinary user to Domain Admins: read-only privilege relationship graph
+
+**New defensive analysis:** [Privilege path methodology and limitations](docs/PRIVILEGE-PATHS.md). The tool follows nested `memberOf` links and candidate ACL-based group-membership changes, then generates a local visual HTML or structured JSON report. A path candidate is **not a verified successful attack**.
+
+Run on an **authorized test domain**, with Python 3.11+ and Windows PowerShell 5.1 / RSAT:
+
+```powershell
+.\scripts\Invoke-ADPrivilegePathAudit.ps1 `
+  -Server dc01.lab.local `
+  -StartSamAccountName ordinary.user `
+  -OutputDirectory .\reports `
+  -IncludeIdentityNames
+```
+
+The report distinguishes `membership_path_found`, `potential_acl_path` and `no_path_in_collected_scope`. The last outcome does **not** establish that the domain is secure. DCSync right candidates, domain-root ACL rights and GPO edit permission candidates appear separately; **DCSync is not automatically Domain Admin membership** and GPO linkage/SYSVOL effects are not yet resolved.
+
+A single-domain, bounded read-only graph is collected locally. Group ACLs, Deny entries, cross-domain trusts, session edges, remote administration and protected-object behavior require further assessment. Actual Domain Controller testing has **not** been performed; Windows CI uses simulated group and security descriptor responses.
+
 ## Extended v0.3 live posture checks
 
 The optional parameters CheckDcRegistry, CheckLapsMetadata and CheckAdcsTemplates add five further review indicators AD014–AD018.

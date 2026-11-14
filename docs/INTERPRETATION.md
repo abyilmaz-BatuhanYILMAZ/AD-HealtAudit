@@ -22,7 +22,7 @@ AD-HealthAudit v0.3 is a **read-only live Active Directory Domain Services inven
 
 The report has `complete=false` and warnings when **optional** inventory such as computers, Domain Admins group or default policy cannot be read. Required user/domain queries fail loudly. It intentionally does *not* invent safe defaults in place of missing information. The explicit encryption bits are checked only when the account advertises the attribute; an absent/zero setting must not be counted as confirmed RC4/DES usage.
 
-**Out of scope:** full effective permissions and group graph, DCSync ACL audits, GPO analysis, LDAP signing/channel binding enforcement, live Kerberos network captures, Azure AD / Microsoft Entra ID, password cracking, password exposure, and domain exploitation. None of the scripts changes domain settings.
+**Out of scope in the main indicator report:** effective permissions, privilege relationships, domain-root DCSync ACLs and GPO permissions. A separate **read-only preliminary graph analyzer** now examines directly collected group memberships and selected group/domain/GPO ACL candidates (see [PRIVILEGE-PATHS.md](PRIVILEGE-PATHS.md)). The graph is not a complete effective-permission evaluator. LDAP signing/channel binding enforcement testing, Kerberos network captures, Microsoft Entra ID, password cracking, password exposure and domain exploitation remain out of scope. None of the scripts changes domain settings.
 
 **Privacy:** Account names are excluded by default; `-IncludeAccountNames` adds potentially sensitive names to findings. Do not publish real inventory reports or commit them to GitHub. Output files are not overwritten automatically.
 
