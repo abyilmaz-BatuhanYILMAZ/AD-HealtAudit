@@ -21,7 +21,7 @@ jobs:
       - name: Parse PowerShell 5.1 AD audit and graph collector scripts
         shell: powershell
         run: |
-          foreach ($file in @('src/Invoke-ADHealthAudit.ps1', 'src/Export-ADPrivilegeGraph.ps1', 'tests/Mock-PrivilegeGraph.ps1')) {
+          foreach ($file in @('src/Invoke-ADHealthAudit.ps1', 'src/Export-ADPrivilegeGraph.ps1', 'tests/Mock-PrivilegeGraph.ps1', 'scripts/Invoke-ADPrivilegePathAudit.ps1')) {
             $tokens = $null
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $pwd $file), [ref]$tokens, [ref]$errors)
