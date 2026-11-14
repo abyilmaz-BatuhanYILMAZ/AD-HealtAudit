@@ -295,6 +295,7 @@ if ($Format -eq 'Json') {
         } else { 'Account names redacted' }
         $cells = @((Escape-Html $finding.rule_id), (Escape-Html $finding.severity),
                    (Escape-Html $finding.title), (Escape-Html $finding.affected_count),
+                   (Escape-Html $finding.evidence_attribute), (Escape-Html $finding.recommendation),
                    (Escape-Html $affected))
         '<tr><td>' + ($cells -join '</td><td>') + '</td></tr>'
     }
@@ -305,7 +306,7 @@ if ($Format -eq 'Json') {
 <p><b>Domain:</b> $(Escape-Html $domain.DNSRoot) | <b>Generated UTC:</b> $(Escape-Html $report.generated_utc)</p>
 <p><b>Completeness:</b> $(Escape-Html $report.complete) | <b>Read only:</b> True</p>
 <p><b>Interpretation:</b> Indicators require manual review; none is proof of exploitation.</p>
-<table><thead><tr><th>Rule</th><th>Severity</th><th>Indicator</th><th>Affected</th><th>Objects</th></tr></thead><tbody>
+<table><thead><tr><th>Rule</th><th>Severity</th><th>Indicator</th><th>Affected</th><th>Evidence attribute</th><th>Recommended review</th><th>Objects</th></tr></thead><tbody>
 $($rows -join "`n")
 </tbody></table><p>Warnings: $(Escape-Html ($warnings -join '; '))</p></body></html>
 "@
