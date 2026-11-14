@@ -1,6 +1,6 @@
 # Interpretation and limitations
 
-AD-HealthAudit v0.2 is a **read-only live Active Directory Domain Services inventory**. It queries authorized directory objects via the Microsoft RSAT ActiveDirectory PowerShell module and produces report files only on the auditor's machine. A finding is an **indicator for human review**, not a confirmed exploit, breach, or CVE.
+AD-HealthAudit v0.3 is a **read-only live Active Directory Domain Services inventory**. It queries authorized directory objects via the Microsoft RSAT ActiveDirectory PowerShell module and produces report files only on the auditor's machine. A finding is an **indicator for human review**, not a confirmed exploit, breach, or CVE.
 
 ## Indicator catalogue
 
@@ -25,3 +25,18 @@ The report has `complete=false` and warnings when **optional** inventory such as
 **Out of scope:** full effective permissions and group graph, DCSync ACL audits, GPO analysis, LDAP signing/channel binding enforcement, live Kerberos network captures, Azure AD / Microsoft Entra ID, password cracking, password exposure, and domain exploitation. None of the scripts changes domain settings.
 
 **Privacy:** Account names are excluded by default; `-IncludeAccountNames` adds potentially sensitive names to findings. Do not publish real inventory reports or commit them to GitHub. Output files are not overwritten automatically.
+
+
+## Extended v0.3 indicators
+
+| ID | Severity | Interpretation |
+| --- | --- | --- |
+| AD014 | HIGH | Selected DC LDAPServerIntegrity explicitly not 2 (Require Signing) |
+| AD015 | HIGH | Selected DC LdapEnforceChannelBinding=0 (Never) |
+| AD016 | MEDIUM | Selected DC LdapEnforceChannelBinding=1 (When supported, not Always) |
+| AD017 | MEDIUM | Windows/legacy LAPS password expiration metadata overdue; no passwords read |
+| AD018 | MEDIUM | Certificate template enrollee-supplied-subject flag; not an ESC vulnerability finding without ACL/EKU/publication assessment |
+
+Unknown or absent registry values do not establish secure defaults; DC OS and applied policy can affect defaults. The optional registry read uses WinRM against only the explicit DC. This does not prove whether unsigned LDAP binds are accepted.
+
+Official sources: https://support.microsoft.com/en-gb/servicing/os/windows/2020/02/2020-2023-and-2024-ldap-channel-binding-and-ldap-signing-requirements-for-windows-kb4520412 ; https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/ldap-channel-binding ; https://learn.microsoft.com/en-us/windows-server/identity/laps/laps-technical-reference .

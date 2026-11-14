@@ -47,3 +47,18 @@ GitHub Actions also contains a **Windows PowerShell 5.1 syntax check and end-to-
 All remote directory commands are **Get-AD*** queries. No Set-AD, New-AD, Remove-AD or other domain modifications are used. All output files are local. For risk interpretation and missing checks see [INTERPRETATION.md](docs/INTERPRETATION.md).
 
 **License:** MIT. Use only on AD DS environments you are authorized to audit.
+
+
+## Extended v0.3 live posture checks
+
+The optional parameters CheckDcRegistry, CheckLapsMetadata and CheckAdcsTemplates add five further review indicators AD014–AD018.
+
+~~~powershell
+.\src\Invoke-ADHealthAudit.ps1 -Server dc01.training.invalid -CheckDcRegistry -CheckLapsMetadata -CheckAdcsTemplates -IncludeAccountNames -Format Html -OutputPath .\posture.html
+~~~
+
+- CheckDcRegistry: uses opt-in read-only WinRM to inspect LDAPServerIntegrity and LdapEnforceChannelBinding on the **selected** DC. An absent registry value, missing WinRM privilege or failed connection means **unknown**, not compliant. It does not actively test LDAP binds or every Domain Controller in a forest.
+- CheckLapsMetadata: retrieves Windows/legacy LAPS expiration **timestamps**, never password values. Overdue values prompt investigation, not a breach finding.
+- CheckAdcsTemplates: reads certificate template enrollee-supplied-subject flags. Actual AD CS exploitation requires other checks including EKUs, effective enrolment ACLs, CA publication and issuance requirements.
+
+Extended checks are optional to preserve least-privilege basic inventory. Optional failures appear in warnings and make complete=false. The Windows CI verifies code with **mocked AD records**, not a real DC.
