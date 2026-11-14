@@ -15,14 +15,22 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Parse full PowerShell script before execution
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Parse PowerShell 5.1 AD audit and graph collector scripts
         shell: powershell
         run: |
-          $tokens = $null
-          $errors = $null
-          [void][System.Management.Automation.Language.Parser]::ParseFile("$pwd/src/Invoke-ADHealthAudit.ps1", [ref]$tokens, [ref]$errors)
-          if ($errors.Count -ne 0) { $errors | Format-List; exit 1 }
-          Write-Output 'Windows PowerShell 5.1 parse passed.'
+          foreach ($file in @('src/Invoke-ADHealthAudit.ps1', 'src/Export-ADPrivilegeGraph.ps1', 'tests/Mock-PrivilegeGraph.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $pwd $file), [ref]$tokens, [ref]$errors)
+            if ($errors.Count -ne 0) { $errors | Format-List; exit 1 }
+          }
+          Write-Output 'Windows PowerShell 5.1 scripts parsed successfully.'
       - name: Test complete program with a mocked ActiveDirectory module
         shell: powershell
         run: .\tests\Mock-ADIntegration.ps1
+      - name: Mock live AD membership, ACL, GPO and DCSync graph with Python analysis
+        shell: powershell
+        run: .\tests\Mock-PrivilegeGraph.ps1
