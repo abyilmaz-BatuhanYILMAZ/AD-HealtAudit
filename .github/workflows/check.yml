@@ -1,0 +1,28 @@
+name: Read-only AD audit contracts and PowerShell integration
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest discover -s tests -v
+  windows-powershell-5-1:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse full PowerShell script before execution
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile("$pwd/src/Invoke-ADHealthAudit.ps1", [ref]$tokens, [ref]$errors)
+          if ($errors.Count -ne 0) { $errors | Format-List; exit 1 }
+          Write-Output 'Windows PowerShell 5.1 parse passed.'
+      - name: Test complete program with a mocked ActiveDirectory module
+        shell: powershell
+        run: .\tests\Mock-ADIntegration.ps1

@@ -1,0 +1,4 @@
+report.json
+reports/
+*.evtx
+__pycache__/
